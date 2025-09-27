@@ -247,4 +247,4 @@ This is a POC implementation demonstrating:
 ![Alt text](screenshots/Screenshot-2025-09-27-141013.png)
 
 ## Triage notes View
-<img src="screenshots/Screenshot-2025-09-27-141027.png" width="400">
+<img src="screenshots/Screenshot-2025-09-27-141027.png" width="600">
