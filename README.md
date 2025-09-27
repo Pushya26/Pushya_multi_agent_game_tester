@@ -220,12 +220,22 @@ This is a POC implementation demonstrating:
 - **Artifact collection** ✅
 - **Result analysis** ✅
 
-### Production Roadmap
+### Output Snapshots
 
-- Uncomment Playwright executor code
-- Add persistent storage (database)
-- Implement queue-based task management
-- Enhanced error handling
-- Security hardening
-- Scalability improvements
-- Real browser testing with cross-browser support
+![project page](screenshots/Screenshot 2025-09-27 140528.png)
+
+![step 1: Executing Planner and Analyer Agents](screenshots/Screenshot 2025-09-27 140754.png)
+
+![Step 1 output](screenshots/Screenshot 2025-09-27 140800.png)
+
+![step 2: Executing Executor Agent](screenshots/Screenshot 2025-09-27 140828.png)
+
+![Step 2 output](screenshots/Screenshot 2025-09-27 140835.png)
+
+![Step 3: Output status and report](screenshots/Screenshot 2025-09-27 140917.png)
+
+![Result Output](screenshots/Screenshot 2025-09-27 140937.png)
+
+![Detailed Report View](screenshots/Screenshot 2025-09-27 141013.png)
+
+![Triage notes View](screenshots/Screenshot 2025-09-27 141027.png)
