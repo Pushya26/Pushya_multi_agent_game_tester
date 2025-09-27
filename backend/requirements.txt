@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+langchain
+langchain-openai
+langchain-core
+openai
+playwright
+pydantic
+python-dotenv
+httpx
+aiofiles
+rich
+requests
