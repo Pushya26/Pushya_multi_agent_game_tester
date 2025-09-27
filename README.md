@@ -223,28 +223,28 @@ This is a POC implementation demonstrating:
 ### Output Snapshots
 
 ## project page
-![Alt text](screenshots/Screenshot-2025-09-27 140528.png)
+<img src="screenshots/Screenshot-2025-09-27 140528.png" width="600">
 
 ## step 1: Executing Planner and Analyer Agents
-![Alt text](screenshots/Screenshot-2025-09-27 140754.png)
+<img src="screenshots/Screenshot-2025-09-27 140754.png" width="600">
 
 ## Step 1 output
-![Alt text](screenshots/Screenshot-2025-09-27-140800.png)
+<img src="screenshots/Screenshot-2025-09-27-140800.png" width="600">
 
 ## step 2: Executing Executor Agent
-![Alt text](screenshots/Screenshot-2025-09-27-140828.png)
+<img src="screenshots/Screenshot-2025-09-27-140828.png" width="600">
 
 ## Step 2 output
-![Alt text](screenshots/Screenshot-2025-09-27-140835.png)
+<img src="screenshots/Screenshot-2025-09-27-140835.png" width="600">
 
 ## Step 3: Output status and report
-![Alt text](screenshots/Screenshot-2025-09-27-140917.png)
+<img src="screenshots/Screenshot-2025-09-27-140917.png" width="600">
 
 ## Result Output
-![Alttext](screenshots/Screenshot-2025-09-27-140937.png)
+<img src="screenshots/Screenshot-2025-09-27-140937.png" width="600">
 
 ## Detailed Report View
-![Alt text](screenshots/Screenshot-2025-09-27-141013.png)
+<img src="screenshots/Screenshot-2025-09-27-141013.png" width="600">
 
 ## Triage notes View
 <img src="screenshots/Screenshot-2025-09-27-141027.png" width="600">
