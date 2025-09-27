@@ -222,20 +222,29 @@ This is a POC implementation demonstrating:
 
 ### Output Snapshots
 
-![project page](screenshots/Screenshot 2025-09-27 140528.png)
+##project page
+![Alt text](screenshots/Screenshot 2025-09-27 140528.png)
 
-![step 1: Executing Planner and Analyer Agents](screenshots/Screenshot 2025-09-27 140754.png)
+##step 1: Executing Planner and Analyer Agents
+![Alt text](screenshots/Screenshot 2025-09-27 140754.png)
 
-![Step 1 output](screenshots/Screenshot 2025-09-27 140800.png)
+##Step 1 output
+![Alt text](screenshots/Screenshot 2025-09-27 140800.png)
 
-![step 2: Executing Executor Agent](screenshots/Screenshot 2025-09-27 140828.png)
+##step 2: Executing Executor Agent
+![Alt text](screenshots/Screenshot 2025-09-27 140828.png)
 
-![Step 2 output](screenshots/Screenshot 2025-09-27 140835.png)
+##Step 2 output
+![Alt text](screenshots/Screenshot 2025-09-27 140835.png)
 
-![Step 3: Output status and report](screenshots/Screenshot 2025-09-27 140917.png)
+##Step 3: Output status and report
+![Alt text](screenshots/Screenshot 2025-09-27 140917.png)
 
-![Result Output](screenshots/Screenshot 2025-09-27 140937.png)
+##Result Output
+![Alt text](screenshots/Screenshot 2025-09-27 140937.png)
 
-![Detailed Report View](screenshots/Screenshot 2025-09-27 141013.png)
+##Detailed Report View
+![Alt text](screenshots/Screenshot 2025-09-27 141013.png)
 
-![Triage notes View](screenshots/Screenshot 2025-09-27 141027.png)
+##Triage notes View
+![Alt text](screenshots/Screenshot 2025-09-27 141027.png)
