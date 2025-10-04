@@ -1,65 +1,101 @@
-import requests
+# ...existing code...
 import json
-import re
-from app.config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL
+import logging
+from typing import List, Dict
+from uuid import uuid4
 
-# LangChain imports
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage
+from app.config import OPENROUTER_API_KEY
 
-def generate_candidates(url: str, goal: str):
-    if not OPENROUTER_API_KEY:
-        print("No OpenRouter API key found, using fallback")
-        return _get_fallback_candidates(url)
-    
+logger = logging.getLogger(__name__)
+
+
+def _fallback_generate(n: int) -> List[Dict]:
+    candidates = []
+    for i in range(n):
+        tc_id = f"tc-{i+1:03}"
+        title = f"PUZZLE_FLOW_{i+1:03}"
+        steps = [
+            "open https://play.ezygamers.com/",
+            "wait for game canvas to load",
+            "attempt a valid move (choose first visible number/cell)",
+            "observe score / next state"
+        ]
+        # add some diversity
+        if i % 3 == 0:
+            steps.append("try invalid input or rapid clicks")
+        if i % 5 == 0:
+            steps.append("resize or change viewport")
+        candidates.append({"id": tc_id, "title": title, "steps": steps})
+    return candidates
+
+
+def generate_plans(n: int = 30) -> List[Dict]:
+    """
+    Generate n candidate test cases. Try to use LangChain if available and configured,
+    otherwise fall back to deterministic generation.
+    Each candidate: { id, title, steps: [str] }
+    """
+    # Try to use langchain if present & API key configured
     try:
-        prompt = f"""You are a test designer for web games. Given URL: {url} and goals: {goal}, 
-generate exactly 20 test cases as JSON array. Each test case should have:
-{{'id':'tc-001','title':'Test Title','description':'Description','tags':['edge-case'],'steps':[{{'id':1,'action':'navigate','value':'{url}'}},{{'id':2,'action':'click','selector':'button'}}]}}
+        from langchain import LLMChain, PromptTemplate
+        from langchain.chat_models import ChatOpenAI
 
-Actions: navigate, click, type, wait_for, assert_text, assert_element, evaluate_js
-Focus on math operations, edge cases (zero, negative, large numbers), UI interactions.
-Return ONLY valid JSON array, no other text."""
-        
-        # Use LangChain wrapper (ChatOpenAI works with OpenRouter by pointing base_url)
-        llm = ChatOpenAI(
-            api_key=OPENROUTER_API_KEY,
-            base_url=OPENROUTER_BASE_URL,  # crucial for OpenRouter
-            model="mistralai/mistral-7b-instruct:free",
-            temperature=0.2,
-            request_timeout=15,
+        if not OPENROUTER_API_KEY:
+            raise RuntimeError("No OPENROUTER_API_KEY set")
+
+        prompt = PromptTemplate(
+            input_variables=["count"],
+            template=(
+                "You are a test planner. Produce exactly {count} compact end-to-end test cases "
+                "for the math puzzle web game at https://play.ezygamers.com/. "
+                "Return a JSON array where each element is an object with keys: id, title, steps (array of short instructions). "
+                "Keep steps simple and actionable for UI automation."
+            ),
         )
+        llm = ChatOpenAI(temperature=0.7, model="gpt-4o-mini")  # model name may vary; fallbacks exist
+        chain = LLMChain(llm=llm, prompt=prompt)
+        raw = chain.run({"count": str(n)})
+        try:
+            candidates = json.loads(raw)
+            # basic validation
+            if not isinstance(candidates, list) or len(candidates) < n:
+                logger.warning("LangChain returned unexpected format or fewer items; falling back")
+                return _fallback_generate(n)
+            # ensure ids
+            for i, c in enumerate(candidates):
+                c.setdefault("id", f"tc-{i+1:03}")
+            return candidates
+        except Exception:
+            logger.exception("Failed to parse LLM output as JSON; falling back")
+            return _fallback_generate(n)
+    except Exception:
+        # any failure -> fallback
+        logger.exception("LangChain not available or failed; using fallback generator")
+        return _fallback_generate(n)
+# ...existing code...
 
-        response = llm.invoke([HumanMessage(content=prompt)])
-        content = response.content
-
-        json_match = re.search(r'\[.*\]', content, re.DOTALL)
-        if json_match:
-            candidates = json.loads(json_match.group(0))
-            print(f"Generated {len(candidates)} AI test cases via LangChain")
-            return candidates[:20]
-
-        print("LangChain generation failed, using fallback")
-        return _get_fallback_candidates(url)
-
-    except Exception as e:
-        print(f"LangChain error: {e}, using fallback")
-        return _get_fallback_candidates(url)
-
-def _get_fallback_candidates(url: str):
-    return [
-        {
-            "id": f"tc-{i:03d}",
-            "title": f"Math Game Test {i}",
-            "description": f"Test case {i} for math operations",
-            "tags": ["basic" if i <= 10 else "edge-case"],
-            "steps": [
-                {"id": 1, "action": "navigate", "value": url},
-                {"id": 2, "action": "wait_for", "selector": "body"},
-                {"id": 3, "action": "click", "selector": "button, input[type=button], .btn"},
-                {"id": 4, "action": "type", "selector": "input[type=number], input[type=text]", "value": str(i * 10)},
-                {"id": 5, "action": "assert_element", "selector": "body"}
-            ]
-        }
-        for i in range(1, 21)
-    ]
+def generate_candidates(url: str, goal: str) -> List[Dict]:
+    """
+    Generate test case candidates for the given URL and goal
+    
+    Args:
+        url: Target URL to test
+        goal: Testing goal/objective
+        
+    Returns:
+        List of test case candidates
+    """
+    # Use the existing generate_plans function
+    candidates = generate_plans(n=20)
+    
+    # Add URL and goal context to each candidate
+    for candidate in candidates:
+        # Update steps to include the specific URL
+        if candidate.get('steps'):
+            candidate['steps'] = [step.replace('https://play.ezygamers.com/', url) for step in candidate['steps']]
+        
+        # Add description based on goal
+        candidate['description'] = f"Test case for {goal} on {url}"
+        candidate['tags'] = ['automated', 'web-game']
+    
+    return candidates

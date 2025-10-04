@@ -1,54 +1,31 @@
-# ...existing code...
-import sys
-import asyncio
-
-# Windows + Python 3.13 fix for subprocess support in asyncio
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 import uuid
 import os
+import sys
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+import asyncio
 import inspect
-import logging
 
-logger = logging.getLogger(__name__)
+# Fix for Python 3.13 + Windows compatibility
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
-# try to import agents/modules with fallbacks
-try:
-    from app.agents import planner as planner_mod
-except Exception:
-    planner_mod = None
-
-try:
-    from app.agents import ranker as ranker_mod
-except Exception:
-    ranker_mod = None
-
-try:
-    from app.agents import orchestrator as orchestrator_mod
-except Exception:
-    orchestrator_mod = None
-
-try:
-    from app.agents import analyzer as analyzer_mod
-except Exception:
-    analyzer_mod = None
-
-try:
-    from app.agents import executor as executor_mod
-except Exception:
-    executor_mod = None
-
+from app.agents.planner import generate_candidates
+from app.agents.ranker import rank_candidates
+from app.agents.orchestrator import orchestrate
+from app.agents.analyzer import generate_triage_notes
 from app.models import RunReport
 from app.config import ARTIFACTS_DIR
+from app.agents.planner_rag import RAGPlanner
+from app.rag.feedback_loop import FeedbackLoopManager
+
+
 
 app = FastAPI(title="Multi-Agent Game Tester", version="1.0.0")
 
-# Enable CORS for frontend
+# Enable CORS for frontend - MUST be here
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -60,52 +37,38 @@ app.add_middleware(
 # In-memory storage for POC
 in_memory_store: Dict[str, Any] = {}
 
-# resolve functions with common fallback names
-def _resolve(fn_candidates, module):
-    if not module:
-        return None
-    for name in fn_candidates:
-        if hasattr(module, name):
-            return getattr(module, name)
-    return None
-
-generate_candidates = _resolve(["generate_candidates", "generate_plans", "generate"], planner_mod)
-rank_candidates = _resolve(["rank_candidates", "rank"], ranker_mod)
-orchestrate_fn = _resolve(["orchestrate", "start_execution", "start"], orchestrator_mod)
-generate_triage_notes = _resolve(["generate_triage_notes", "generate_triage", "triage"], analyzer_mod)
-
+# Add missing helper functions
 async def _maybe_call(func, *args, **kwargs):
     """Call func whether it's sync or async; return result."""
     if func is None:
         raise RuntimeError("Requested function not available")
     if inspect.iscoroutinefunction(func):
         return await func(*args, **kwargs)
-    # sync function -> run in thread to avoid blocking event loop
     return await asyncio.to_thread(func, *args, **kwargs)
 
-@app.get("/")
-async def root():
-    return {"message": "Multi-Agent Game Tester API"}
+orchestrate_fn = orchestrate
 
+
+# Initialize RAG components (add after app initialization)
+rag_planner = RAGPlanner()
+feedback_manager = FeedbackLoopManager()
+
+# Update the /plan endpoint to use RAG
 @app.post("/plan")
 async def plan(payload: dict):
-    """Generate and store test case candidates"""
+    """Generate and store test case candidates using RAG"""
     url = payload.get('url', 'https://play.ezygamers.com/')
     goal = payload.get('goal', 'find bugs and edge cases')
+    use_rag = payload.get('use_rag', True)
 
-    if generate_candidates is None:
-        return {'error': 'Planner not available. Check backend agents.'}
-
-    # try multiple call signatures
     try:
-        # prefer (url, goal)
-        candidates = await _maybe_call(generate_candidates, url, goal)
-    except TypeError:
-        try:
-            # maybe function expects only count or nothing
-            candidates = await _maybe_call(generate_candidates)
-        except Exception as e:
-            return {'error': f'Planner invocation failed: {e}'}
+        # Use RAG-enhanced planner
+        candidates = rag_planner.generate_candidates(
+            url=url, 
+            goal=goal, 
+            use_rag=use_rag,
+            count=20
+        )
     except Exception as e:
         return {'error': f'Planner failed: {e}'}
 
@@ -114,8 +77,9 @@ async def plan(payload: dict):
 
     return {
         'status': 'success',
-        'count': len(candidates) if candidates else 0,
-        'message': f'Generated {len(candidates) if candidates else 0} test case candidates'
+        'count': len(candidates),
+        'use_rag': use_rag,
+        'message': f'Generated {len(candidates)} test cases{"with RAG enhancement" if use_rag else ""}'
     }
 
 @app.post("/rank")
@@ -124,26 +88,242 @@ async def rank():
     candidates = in_memory_store.get('candidates', [])
     if not candidates:
         return {'error': 'No candidates found. Run /plan first.'}
-
-    if rank_candidates is None:
-        return {'error': 'Ranker not available. Check backend agents.'}
-
-    try:
-        top10 = await _maybe_call(rank_candidates, candidates, 10)
-    except TypeError:
-        # ranker may accept only candidates and return top 10 internally
-        top10 = await _maybe_call(rank_candidates, candidates)
-    except Exception as e:
-        return {'error': f'Ranker failed: {e}'}
-
+    
+    top10 = rank_candidates(candidates)
     in_memory_store['top10'] = top10
-
+    
     return {
         'status': 'success',
         'selected': len(top10),
         'message': f'Selected top {len(top10)} test cases'
     }
 
+# NEW ENDPOINT: Submit feedback
+@app.post("/feedback")
+async def submit_feedback(payload: dict):
+    """
+    Submit user feedback for a test case
+    
+    Body:
+    {
+        "run_id": "uuid",
+        "testcase_id": "tc-001",
+        "score": 4,
+        "comment": "Great test case!"
+    }
+    """
+    run_id = payload.get('run_id')
+    testcase_id = payload.get('testcase_id')
+    score = payload.get('score')
+    comment = payload.get('comment')
+    
+    if not all([run_id, testcase_id, score]):
+        return {'error': 'Missing required fields: run_id, testcase_id, score'}
+    
+    try:
+        result = feedback_manager.collect_user_feedback(
+            run_id=run_id,
+            testcase_id=testcase_id,
+            score=score,
+            comment=comment
+        )
+        return result
+    except ValueError as e:
+        return {'error': str(e)}
+    except Exception as e:
+        return {'error': f'Failed to submit feedback: {e}'}
+
+# NEW ENDPOINT: Get improvement metrics
+@app.get("/metrics/improvement")
+async def get_improvement_metrics(days: int = 30):
+    """Get agent improvement metrics over time"""
+    try:
+        report = feedback_manager.generate_improvement_report(days=days)
+        return report
+    except Exception as e:
+        return {'error': f'Failed to generate report: {e}'}
+
+# NEW ENDPOINT: Get learning insights
+@app.get("/metrics/learning")
+async def get_learning_insights():
+    """Get insights about what the agent has learned"""
+    try:
+        insights = feedback_manager.get_learning_insights()
+        return insights
+    except Exception as e:
+        return {'error': f'Failed to get insights: {e}'}
+
+# NEW ENDPOINT: Trigger retraining
+@app.post("/retrain")
+async def trigger_retraining(payload: dict):
+    """
+    Trigger agent retraining with high-quality examples
+    
+    Body:
+    {
+        "min_feedback_score": 4
+    }
+    """
+    min_score = payload.get('min_feedback_score', 4)
+    
+    try:
+        result = feedback_manager.trigger_retraining(min_feedback_score=min_score)
+        return result
+    except Exception as e:
+        return {'error': f'Retraining failed: {e}'}
+
+# NEW ENDPOINT: Get vector store statistics
+@app.get("/rag/stats")
+async def get_rag_stats():
+    """Get RAG system statistics"""
+    try:
+        vector_stats = rag_planner.vector_store.get_statistics()
+        db_metrics = rag_planner.feedback_db.get_performance_metrics(days=30)
+        
+        return {
+            "vector_store": vector_stats,
+            "performance": db_metrics,
+            "status": "operational"
+        }
+    except Exception as e:
+        return {'error': f'Failed to get stats: {e}'}
+
+# NEW ENDPOINT: Search similar test cases
+@app.post("/rag/search")
+async def search_similar_cases(payload: dict):
+    """
+    Search for similar test cases
+    
+    Body:
+    {
+        "query": "test zero division",
+        "k": 5
+    }
+    """
+    query = payload.get('query', '')
+    k = payload.get('k', 5)
+    
+    if not query:
+        return {'error': 'Query is required'}
+    
+    try:
+        results = rag_planner.vector_store.search_similar_cases(
+            query=query,
+            k=k,
+            filter_successful=True
+        )
+        return {
+            "query": query,
+            "count": len(results),
+            "results": results
+        }
+    except Exception as e:
+        return {'error': f'Search failed: {e}'}
+
+# NEW ENDPOINT: Get feedback history
+@app.get("/feedback/history")
+async def get_feedback_history(testcase_id: Optional[str] = None, limit: int = 100):
+    """Get feedback history, optionally filtered by test case"""
+    try:
+        if testcase_id:
+            feedback = rag_planner.feedback_db.get_feedback_for_testcase(testcase_id)
+        else:
+            feedback = rag_planner.feedback_db.get_recent_feedback(limit=limit)
+        
+        return {
+            "count": len(feedback),
+            "feedback": feedback
+        }
+    except Exception as e:
+        return {'error': f'Failed to get feedback: {e}'}
+
+# RAG ENDPOINTS
+
+@app.post("/rag/feedback")
+async def submit_feedback(payload: dict):
+    """Submit user feedback for a test case"""
+    run_id = payload.get('run_id')
+    testcase_id = payload.get('testcase_id') 
+    score = payload.get('score')
+    comment = payload.get('comment')
+    
+    if not all([run_id, testcase_id, score]):
+        return {'error': 'Missing required fields: run_id, testcase_id, score'}
+    
+    try:
+        result = feedback_manager.collect_user_feedback(run_id, testcase_id, score, comment)
+        return result
+    except Exception as e:
+        return {'error': f'Failed to submit feedback: {e}'}
+
+@app.get("/rag/metrics")
+async def get_performance_metrics(days: int = 30):
+    """Get performance metrics"""
+    try:
+        return feedback_manager.generate_improvement_report(days=days)
+    except Exception as e:
+        return {'error': f'Failed to get metrics: {e}'}
+
+@app.post("/rag/retrain")
+async def trigger_retraining():
+    """Trigger retraining"""
+    try:
+        return feedback_manager.trigger_retraining()
+    except Exception as e:
+        return {'error': f'Retraining failed: {e}'}
+
+@app.post("/rag/similar")
+async def find_similar_cases(payload: dict):
+    """Find similar test cases"""
+    query = payload.get('query', '')
+    k = payload.get('k', 5)
+    
+    if not query:
+        return {'error': 'Query is required'}
+    
+    try:
+        results = rag_planner.vector_store.search_similar_cases(query=query, k=k)
+        return {'query': query, 'count': len(results), 'results': results}
+    except Exception as e:
+        return {'error': f'Search failed: {e}'}
+
+@app.get("/rag/stats")
+async def get_rag_stats():
+    """Get RAG system statistics"""
+    try:
+        vector_stats = rag_planner.vector_store.get_statistics()
+        db_metrics = rag_planner.feedback_db.get_performance_metrics(days=30)
+        return {'vector_store': vector_stats, 'performance': db_metrics, 'status': 'operational'}
+    except Exception as e:
+        return {'error': f'Failed to get stats: {e}'}
+
+@app.get("/rag/improvement-report")
+async def get_improvement_report(days: int = 30):
+    """Generate improvement report"""
+    try:
+        return feedback_manager.generate_improvement_report(days=days)
+    except Exception as e:
+        return {'error': f'Failed to generate report: {e}'}
+
+@app.get("/rag/learning-insights")
+async def get_learning_insights():
+    """Get learning insights"""
+    try:
+        return feedback_manager.get_learning_insights()
+    except Exception as e:
+        return {'error': f'Failed to get insights: {e}'}
+
+@app.delete("/rag/clear-data")
+async def clear_training_data():
+    """Clear training data (use with caution)"""
+    try:
+        rag_planner.vector_store.clear_store()
+        return {'status': 'success', 'message': 'Training data cleared'}
+    except Exception as e:
+        return {'error': f'Failed to clear data: {e}'}
+
+
+# Update execute endpoint to process results with feedback manager
 @app.post("/execute")
 async def execute(background_tasks: BackgroundTasks):
     """Execute top 10 test cases"""
@@ -154,7 +334,6 @@ async def execute(background_tasks: BackgroundTasks):
     run_id = str(uuid.uuid4())
     url = in_memory_store.get('url', 'https://play.ezygamers.com/')
 
-    # Initialize run status
     in_memory_store[run_id] = {'status': 'running', 'progress': 0}
 
     async def execute_tests():
@@ -163,17 +342,21 @@ async def execute(background_tasks: BackgroundTasks):
             artifacts_dir = os.path.join(ARTIFACTS_DIR, run_id)
             os.makedirs(artifacts_dir, exist_ok=True)
         
-        # Run orchestration
             if orchestrate_fn is None:
                 raise RuntimeError("Orchestrator not available")
             results = await _maybe_call(orchestrate_fn, top10, artifacts_dir)
         
-        # Generate triage notes
+            # NEW: Process results with feedback manager
+            feedback_manager.process_execution_results(
+                run_id=run_id,
+                testcases=top10,
+                results=results
+            )
+        
             triage_notes = {}
             if generate_triage_notes:
                 triage_notes = await _maybe_call(generate_triage_notes, results)
         
-        # Calculate summary
             summary = {
                 'total': len(results),
                 'passed': sum(1 for r in results if r['verdict'] == 'PASS'),
@@ -181,7 +364,6 @@ async def execute(background_tasks: BackgroundTasks):
                 'flaky': sum(1 for r in results if r['verdict'] == 'FLAKY')
             }
         
-        # Create final report
             report = RunReport(
                 run_id=run_id,
                 url=url,
@@ -203,9 +385,7 @@ async def execute(background_tasks: BackgroundTasks):
                 'status': 'failed',
                 'error': str(e)
             }
-
     
-    # Start background task
     background_tasks.add_task(execute_tests)
     
     return {
@@ -214,32 +394,13 @@ async def execute(background_tasks: BackgroundTasks):
         'message': f'Execution started for {len(top10)} test cases'
     }
 
-# Add this debug endpoint to main.py to check orchestrator import
-@app.get("/debug-orchestrator")
-async def debug_orchestrator():
-    """Debug orchestrator import"""
-    try:
-        from app.agents import orchestrator as orch_mod
-        functions = [name for name in dir(orch_mod) if not name.startswith('_')]
-        has_orchestrate = hasattr(orch_mod, 'orchestrate')
-        return {
-            'import_success': True,
-            'available_functions': functions,
-            'has_orchestrate': has_orchestrate,
-            'orchestrate_fn_resolved': orchestrate_fn is not None
-        }
-    except Exception as e:
-        return {'import_success': False, 'error': str(e)}
-
-
-
 @app.get("/status/{run_id}")
 async def get_status(run_id: str):
     """Get execution status"""
     run_data = in_memory_store.get(run_id)
     if not run_data:
         return {'error': 'Run not found'}
-
+    
     return {
         'run_id': run_id,
         'status': run_data.get('status', 'unknown'),
@@ -252,76 +413,11 @@ async def get_report(run_id: str):
     run_data = in_memory_store.get(run_id)
     if not run_data:
         return {'error': 'Run not found'}
-
+    
     if run_data.get('status') != 'completed':
         return {
             'status': run_data.get('status'),
             'message': 'Execution not completed yet'
         }
-
+    
     return run_data.get('report', {})
-
-@app.get("/runs")
-async def list_runs():
-    """List all runs"""
-    runs = []
-    for key, value in in_memory_store.items():
-        if isinstance(value, dict) and 'status' in value:
-            runs.append({
-                'run_id': key,
-                'status': value.get('status'),
-                'timestamp': value.get('report', {}).get('timestamp') if value.get('report') else None
-            })
-    return {'runs': runs}
-
-@app.get("/debug")
-async def debug():
-    """Debug endpoint to test execution"""
-    try:
-        # try multiple possible executor function names
-        run_fn = None
-        if executor_mod:
-            for name in ("run_testcase", "run_test_case", "run_test_case_async", "run_test_case_sync", "run_test"):
-                if hasattr(executor_mod, name):
-                    run_fn = getattr(executor_mod, name)
-                    break
-
-        if run_fn is None:
-            return {'status': 'error', 'error': 'No executor function found in app.agents.executor'}
-
-        # Simple test case
-        test_case = {
-            'id': 'debug-001',
-            'steps': [
-                {'id': 1, 'action': 'navigate', 'value': 'https://example.com'},
-                {'id': 2, 'action': 'click', 'selector': 'button'}
-            ]
-        }
-
-        # call sync or async executor appropriately
-        if inspect.iscoroutinefunction(run_fn):
-            artifacts = await run_fn(test_case, 'debug_artifacts')
-        else:
-            artifacts = await asyncio.to_thread(run_fn, test_case, 'debug_artifacts')
-
-        return {'status': 'success', 'artifacts': artifacts}
-
-    except Exception as e:
-        import traceback
-        return {
-            'status': 'error',
-            'error': str(e),
-            'traceback': traceback.format_exc()
-        }
-
-@app.get("/store")
-async def get_store():
-    """Debug: Show in-memory store contents"""
-    # limit output size
-    safe_store = {k: (v if k in ("candidates", "top10") else {"status": v.get("status"), "report_present": bool(v.get("report"))}) for k, v in in_memory_store.items()}
-    return {'store_keys': list(in_memory_store.keys()), 'store': safe_store}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-# ...existing code...

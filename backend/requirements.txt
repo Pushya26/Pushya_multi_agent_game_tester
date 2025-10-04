@@ -1,13 +1,29 @@
 fastapi
 uvicorn[standard]
-langchain
-langchain-openai
-langchain-core
-openai
-playwright
 pydantic
 python-dotenv
 httpx
 aiofiles
-rich
 requests
+
+# RAG and ML dependencies
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
+langchain>=0.1.0
+langchain-openai>=0.1.0
+langchain-core>=0.1.0
+langchain-community>=0.0.20
+
+# Vector and ML libraries
+numpy>=1.24.0
+torch>=2.0.0
+transformers>=4.30.0
+huggingface-hub>=0.16.0
+langchain-huggingface>=0.0.3
+
+# Database
+sqlalchemy>=2.0.0
+
+# Testing and browser automation
+playwright
+rich
