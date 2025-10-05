@@ -263,21 +263,29 @@ The system now learns from every test execution and user feedback, continuously 
 ## Demo Screenshots
 
 ### Project Overview
-![Project Page](screenshots/Screenshot-2025-09-27-140528.png)
+<img src="screenshots/Project_page_1.png" width="400">
+<img src="screenshots/Project_page_2.png" width="400">
+<img src="screenshots/Project_page_3.png" width="400">
+
+### RAG Initialization
+<img src="screenshots/RAG_initialization.png" width="400">
 
 ### Step 1: Planning and Ranking
-![Planning Phase](screenshots/Screenshot-2025-09-27-140754.png)
-![Planning Output](screenshots/Screenshot-2025-09-27-140800.png)
+<img src="screenshots/planning_&_ranking_phase.png" width="400">
+<img src="screenshots/Planning_&_ranking_output.png" width="400">
 
 ### Step 2: Test Execution
-![Execution Phase](screenshots/Screenshot-2025-09-27-140828.png)
-![Execution Output](screenshots/Screenshot-2025-09-27-140835.png)
+<img src="screenshots/Execution.png" width="400">
+<img src="screenshots/execution_output.png" width="400">
 
 ### Step 3: Results and Reports
-![Status and Report](screenshots/Screenshot-2025-09-27-140917.png)
-![Result Output](screenshots/Screenshot-2025-09-27-140937.png)
-![Detailed Report](screenshots/Screenshot-2025-09-27-141013.png)
-![Triage Notes](screenshots/Screenshot-2025-09-27-141027.png)
+<img src="screenshots/report.png" width="400">
+<img src="screenshots/report_output.png" width="400">
+<img src="screenshots/detailed_report_output.png" width="400">
+<img src="screenshots/triage_output.png" width="400">
 
+### Step 4: Metrics Report
+<img src="screenshots/metrics.png" width="400">
+<img src="screenshots/metrics_output.png" width="400">
 
 This project is a proof-of-concept for educational and research purposes.
